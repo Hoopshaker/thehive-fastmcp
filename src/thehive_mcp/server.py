@@ -75,6 +75,9 @@ def search_cases(
     severity: Optional[int] = None, 
     tags: Optional[List[str]] = None, 
     status: Optional[str] = None, 
+    sort: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
     limit: int = 10
 ) -> List[Dict[str, Any]]:
     """
@@ -85,6 +88,9 @@ def search_cases(
         severity (int, optional): Filter by exact severity level (1 to 4).
         tags (List[str], optional): Filter by tags (requires all tags to match).
         status (str, optional): Filter by status (e.g. 'Open', 'Resolved').
+        sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
+        created_after (str, optional): Filter cases created after this date (ISO 8601 or timestamp in ms).
+        created_before (str, optional): Filter cases created before this date (ISO 8601 or timestamp in ms).
         limit (int): Maximum number of cases to return. Default is 10.
     """
     client = get_client()
@@ -93,6 +99,9 @@ def search_cases(
         severity=severity,
         tags=tags,
         status=status,
+        sort=sort,
+        created_after=created_after,
+        created_before=created_before,
         limit=limit
     )
 
@@ -154,6 +163,9 @@ def search_alerts(
     severity: Optional[int] = None, 
     tags: Optional[List[str]] = None, 
     status: Optional[str] = None, 
+    sort: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
     limit: int = 10
 ) -> List[Dict[str, Any]]:
     """
@@ -164,6 +176,9 @@ def search_alerts(
         severity (int, optional): Filter by exact severity level (1 to 4).
         tags (List[str], optional): Filter by tags (requires all tags to match).
         status (str, optional): Filter by status (e.g. 'New', 'Imported', 'Ignored').
+        sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
+        created_after (str, optional): Filter alerts created after this date (ISO 8601 or timestamp in ms).
+        created_before (str, optional): Filter alerts created before this date (ISO 8601 or timestamp in ms).
         limit (int): Maximum number of alerts to return. Default is 10.
     """
     client = get_client()
@@ -172,6 +187,9 @@ def search_alerts(
         severity=severity,
         tags=tags,
         status=status,
+        sort=sort,
+        created_after=created_after,
+        created_before=created_before,
         limit=limit
     )
 
@@ -214,16 +232,31 @@ def create_observable(
     )
 
 @mcp.tool()
-def get_case_observables(case_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+def get_case_observables(
+    case_id: str, 
+    sort: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
+    limit: int = 50
+) -> List[Dict[str, Any]]:
     """
     List all observables associated with a specific Case.
     
     Args:
         case_id (str): The unique ID or name/number of the Case.
+        sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
+        created_after (str, optional): Filter observables created after this date (ISO 8601 or timestamp in ms).
+        created_before (str, optional): Filter observables created before this date (ISO 8601 or timestamp in ms).
         limit (int): Maximum number of observables to return. Default is 50.
     """
     client = get_client()
-    return client.get_case_observables(case_id, limit=limit)
+    return client.get_case_observables(
+        case_id=case_id,
+        sort=sort,
+        created_after=created_after,
+        created_before=created_before,
+        limit=limit
+    )
 
 # --- Tools: Tasks & Logs ---
 
@@ -255,16 +288,31 @@ def create_task(
     )
 
 @mcp.tool()
-def get_case_tasks(case_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+def get_case_tasks(
+    case_id: str, 
+    sort: Optional[str] = None,
+    created_after: Optional[str] = None,
+    created_before: Optional[str] = None,
+    limit: int = 50
+) -> List[Dict[str, Any]]:
     """
     List all tasks associated with a specific Case.
     
     Args:
         case_id (str): The unique ID or name/number of the Case.
+        sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
+        created_after (str, optional): Filter tasks created after this date (ISO 8601 or timestamp in ms).
+        created_before (str, optional): Filter tasks created before this date (ISO 8601 or timestamp in ms).
         limit (int): Maximum number of tasks to return. Default is 50.
     """
     client = get_client()
-    return client.get_case_tasks(case_id, limit=limit)
+    return client.get_case_tasks(
+        case_id=case_id,
+        sort=sort,
+        created_after=created_after,
+        created_before=created_before,
+        limit=limit
+    )
 
 @mcp.tool()
 def add_task_log(task_id: str, message: str) -> Dict[str, Any]:

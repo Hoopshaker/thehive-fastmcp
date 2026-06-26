@@ -2,8 +2,41 @@ import os
 import requests
 import logging
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
 
 logger = logging.getLogger("thehive_mcp.client")
+
+def parse_date_to_ms(date_val: Any) -> int:
+    """
+    Parses various date/time formats into Unix timestamp in milliseconds.
+    Supports integers, floats, string representation of integers, ISO 8601 strings.
+    """
+    if isinstance(date_val, (int, float)):
+        return int(date_val)
+    if isinstance(date_val, str):
+        if date_val.isdigit():
+            return int(date_val)
+        # Normalize ISO representation
+        normalized = date_val
+        if normalized.endswith('Z'):
+            normalized = normalized[:-1] + '+00:00'
+        try:
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            # Fallback to standard YYYY-MM-DD
+            try:
+                dt = datetime.strptime(date_val, "%Y-%m-%d")
+                dt = dt.replace(tzinfo=timezone.utc)
+                return int(dt.timestamp() * 1000)
+            except Exception:
+                raise ValueError(
+                    f"Could not parse date '{date_val}'. Expected ISO format (e.g. 2026-06-25T00:00:00Z) "
+                    "or a millisecond timestamp."
+                )
+    raise ValueError(f"Unsupported date type: {type(date_val)}")
 
 class TheHiveClient:
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, verify_ssl: Optional[bool] = None):
@@ -97,7 +130,17 @@ class TheHiveClient:
     def get_case(self, id_or_name: str) -> Dict[str, Any]:
         return self._get(f"/api/v1/case/{id_or_name}")
 
-    def search_cases(self, title: Optional[str] = None, severity: Optional[int] = None, tags: Optional[List[str]] = None, status: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+    def search_cases(
+        self, 
+        title: Optional[str] = None, 
+        severity: Optional[int] = None, 
+        tags: Optional[List[str]] = None, 
+        status: Optional[str] = None, 
+        sort: Optional[str] = None,
+        created_after: Optional[Any] = None,
+        created_before: Optional[Any] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
         query_ops = [{"_name": "listCase"}]
         
         if title:
@@ -133,6 +176,33 @@ class TheHiveClient:
                         "_value": tag
                     }
                 })
+        if created_after is not None:
+            ms = parse_date_to_ms(created_after)
+            query_ops.append({
+                "_name": "filter",
+                "_gte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if created_before is not None:
+            ms = parse_date_to_ms(created_before)
+            query_ops.append({
+                "_name": "filter",
+                "_lte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if sort:
+            direction = "desc" if sort.startswith("-") else "asc"
+            field = sort.lstrip("-+")
+            query_ops.append({
+                "_name": "sort",
+                "_fields": [
+                    {field: direction}
+                ]
+            })
         
         return self.query(query_ops, limit=limit)
 
@@ -154,7 +224,17 @@ class TheHiveClient:
     def get_alert(self, alert_id: str) -> Dict[str, Any]:
         return self._get(f"/api/v1/alert/{alert_id}")
 
-    def search_alerts(self, title: Optional[str] = None, severity: Optional[int] = None, tags: Optional[List[str]] = None, status: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+    def search_alerts(
+        self, 
+        title: Optional[str] = None, 
+        severity: Optional[int] = None, 
+        tags: Optional[List[str]] = None, 
+        status: Optional[str] = None, 
+        sort: Optional[str] = None,
+        created_after: Optional[Any] = None,
+        created_before: Optional[Any] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
         query_ops = [{"_name": "listAlert"}]
         
         if title:
@@ -190,6 +270,33 @@ class TheHiveClient:
                         "_value": tag
                     }
                 })
+        if created_after is not None:
+            ms = parse_date_to_ms(created_after)
+            query_ops.append({
+                "_name": "filter",
+                "_gte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if created_before is not None:
+            ms = parse_date_to_ms(created_before)
+            query_ops.append({
+                "_name": "filter",
+                "_lte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if sort:
+            direction = "desc" if sort.startswith("-") else "asc"
+            field = sort.lstrip("-+")
+            query_ops.append({
+                "_name": "sort",
+                "_fields": [
+                    {field: direction}
+                ]
+            })
         
         return self.query(query_ops, limit=limit)
 
@@ -206,7 +313,14 @@ class TheHiveClient:
         }
         return self._post(f"/api/v1/case/{case_id}/observable", json_data=payload)
 
-    def get_case_observables(self, case_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_case_observables(
+        self, 
+        case_id: str, 
+        sort: Optional[str] = None,
+        created_after: Optional[Any] = None,
+        created_before: Optional[Any] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
         query_ops = [
             {
                 "_name": "getCase",
@@ -216,6 +330,35 @@ class TheHiveClient:
                 "_name": "observables"
             }
         ]
+        
+        if created_after is not None:
+            ms = parse_date_to_ms(created_after)
+            query_ops.append({
+                "_name": "filter",
+                "_gte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if created_before is not None:
+            ms = parse_date_to_ms(created_before)
+            query_ops.append({
+                "_name": "filter",
+                "_lte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if sort:
+            direction = "desc" if sort.startswith("-") else "asc"
+            field = sort.lstrip("-+")
+            query_ops.append({
+                "_name": "sort",
+                "_fields": [
+                    {field: direction}
+                ]
+            })
+            
         return self.query(query_ops, limit=limit)
 
     # --- Task & Log Methods ---
@@ -232,7 +375,14 @@ class TheHiveClient:
             
         return self._post(f"/api/v1/case/{case_id}/task", json_data=payload)
 
-    def get_case_tasks(self, case_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_case_tasks(
+        self, 
+        case_id: str, 
+        sort: Optional[str] = None,
+        created_after: Optional[Any] = None,
+        created_before: Optional[Any] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
         query_ops = [
             {
                 "_name": "getCase",
@@ -242,6 +392,35 @@ class TheHiveClient:
                 "_name": "tasks"
             }
         ]
+        
+        if created_after is not None:
+            ms = parse_date_to_ms(created_after)
+            query_ops.append({
+                "_name": "filter",
+                "_gte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if created_before is not None:
+            ms = parse_date_to_ms(created_before)
+            query_ops.append({
+                "_name": "filter",
+                "_lte": {
+                    "_field": "_createdAt",
+                    "_value": ms
+                }
+            })
+        if sort:
+            direction = "desc" if sort.startswith("-") else "asc"
+            field = sort.lstrip("-+")
+            query_ops.append({
+                "_name": "sort",
+                "_fields": [
+                    {field: direction}
+                ]
+            })
+            
         return self.query(query_ops, limit=limit)
 
     def add_task_log(self, task_id: str, message: str) -> Dict[str, Any]:
