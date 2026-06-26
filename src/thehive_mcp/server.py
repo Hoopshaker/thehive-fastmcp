@@ -78,6 +78,7 @@ def search_cases(
     sort: Optional[str] = None,
     created_after: Optional[str] = None,
     created_before: Optional[str] = None,
+    query: Optional[str] = None,
     limit: int = 10
 ) -> List[Dict[str, Any]]:
     """
@@ -91,6 +92,7 @@ def search_cases(
         sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
         created_after (str, optional): Filter cases created after this date (ISO 8601 or timestamp in ms).
         created_before (str, optional): Filter cases created before this date (ISO 8601 or timestamp in ms).
+        query (str, optional): Advanced search query in TheHive JSON Query DSL (e.g. '{"_eq": {"_field": "status", "_value": "Open"}}').
         limit (int): Maximum number of cases to return. Default is 10.
     """
     client = get_client()
@@ -102,6 +104,7 @@ def search_cases(
         sort=sort,
         created_after=created_after,
         created_before=created_before,
+        query=query,
         limit=limit
     )
 
@@ -166,6 +169,7 @@ def search_alerts(
     sort: Optional[str] = None,
     created_after: Optional[str] = None,
     created_before: Optional[str] = None,
+    query: Optional[str] = None,
     limit: int = 10
 ) -> List[Dict[str, Any]]:
     """
@@ -179,6 +183,7 @@ def search_alerts(
         sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
         created_after (str, optional): Filter alerts created after this date (ISO 8601 or timestamp in ms).
         created_before (str, optional): Filter alerts created before this date (ISO 8601 or timestamp in ms).
+        query (str, optional): Advanced search query in TheHive JSON Query DSL (e.g. '{"_eq": {"_field": "status", "_value": "New"}}').
         limit (int): Maximum number of alerts to return. Default is 10.
     """
     client = get_client()
@@ -190,6 +195,7 @@ def search_alerts(
         sort=sort,
         created_after=created_after,
         created_before=created_before,
+        query=query,
         limit=limit
     )
 
@@ -237,6 +243,7 @@ def get_case_observables(
     sort: Optional[str] = None,
     created_after: Optional[str] = None,
     created_before: Optional[str] = None,
+    query: Optional[str] = None,
     limit: int = 50
 ) -> List[Dict[str, Any]]:
     """
@@ -247,6 +254,7 @@ def get_case_observables(
         sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
         created_after (str, optional): Filter observables created after this date (ISO 8601 or timestamp in ms).
         created_before (str, optional): Filter observables created before this date (ISO 8601 or timestamp in ms).
+        query (str, optional): Advanced search query in TheHive JSON Query DSL.
         limit (int): Maximum number of observables to return. Default is 50.
     """
     client = get_client()
@@ -255,6 +263,7 @@ def get_case_observables(
         sort=sort,
         created_after=created_after,
         created_before=created_before,
+        query=query,
         limit=limit
     )
 
@@ -293,6 +302,7 @@ def get_case_tasks(
     sort: Optional[str] = None,
     created_after: Optional[str] = None,
     created_before: Optional[str] = None,
+    query: Optional[str] = None,
     limit: int = 50
 ) -> List[Dict[str, Any]]:
     """
@@ -303,6 +313,7 @@ def get_case_tasks(
         sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
         created_after (str, optional): Filter tasks created after this date (ISO 8601 or timestamp in ms).
         created_before (str, optional): Filter tasks created before this date (ISO 8601 or timestamp in ms).
+        query (str, optional): Advanced search query in TheHive JSON Query DSL.
         limit (int): Maximum number of tasks to return. Default is 50.
     """
     client = get_client()
@@ -311,6 +322,7 @@ def get_case_tasks(
         sort=sort,
         created_after=created_after,
         created_before=created_before,
+        query=query,
         limit=limit
     )
 

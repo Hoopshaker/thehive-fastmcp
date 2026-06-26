@@ -130,5 +130,38 @@ class TestTheHiveClient(unittest.TestCase):
         self.assertEqual(actual_ops[3]["_name"], "sort")
         self.assertEqual(actual_ops[3]["_fields"], [{"_createdAt": "desc"}])
 
+    def test_search_alerts_custom_json_query(self):
+        client = TheHiveClient(base_url="http://dummy", api_key="dummy_key")
+        actual_ops = []
+        def dummy_query(ops, limit=10):
+            nonlocal actual_ops
+            actual_ops = ops
+            return []
+        
+        client.query = dummy_query
+        
+        # 1. Custom dict query representing a filter
+        client.search_alerts(
+            query='{"_eq": {"_field": "status", "_value": "New"}}'
+        )
+        self.assertEqual(actual_ops[0], {"_name": "listAlert"})
+        self.assertEqual(actual_ops[1], {"_name": "filter", "_eq": {"_field": "status", "_value": "New"}})
+        
+        # 2. Custom dict query containing a named operation
+        client.search_alerts(
+            query='{"_name": "filter", "_eq": {"_field": "status", "_value": "Ignored"}}'
+        )
+        self.assertEqual(actual_ops[1], {"_name": "filter", "_eq": {"_field": "status", "_value": "Ignored"}})
+        
+        # 3. Custom list of operations
+        client.search_alerts(
+            query='[{"_name": "filter", "_eq": {"_field": "status", "_value": "Imported"}}]'
+        )
+        self.assertEqual(actual_ops[1], {"_name": "filter", "_eq": {"_field": "status", "_value": "Imported"}})
+        
+        # 4. Invalid JSON
+        with self.assertRaises(ValueError):
+            client.search_alerts(query='{invalid json}')
+
 if __name__ == "__main__":
     unittest.main()

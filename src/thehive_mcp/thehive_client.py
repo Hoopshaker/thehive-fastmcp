@@ -139,6 +139,7 @@ class TheHiveClient:
         sort: Optional[str] = None,
         created_after: Optional[Any] = None,
         created_before: Optional[Any] = None,
+        query: Optional[str] = None,
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         query_ops = [{"_name": "listCase"}]
@@ -194,6 +195,24 @@ class TheHiveClient:
                     "_value": ms
                 }
             })
+        if query:
+            import json
+            try:
+                parsed = json.loads(query)
+                if isinstance(parsed, list):
+                    for op in parsed:
+                        if isinstance(op, dict):
+                            query_ops.append(op)
+                elif isinstance(parsed, dict):
+                    if "_name" in parsed:
+                        query_ops.append(parsed)
+                    else:
+                        query_ops.append({
+                            "_name": "filter",
+                            **parsed
+                        })
+            except json.JSONDecodeError:
+                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
         if sort:
             direction = "desc" if sort.startswith("-") else "asc"
             field = sort.lstrip("-+")
@@ -233,6 +252,7 @@ class TheHiveClient:
         sort: Optional[str] = None,
         created_after: Optional[Any] = None,
         created_before: Optional[Any] = None,
+        query: Optional[str] = None,
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         query_ops = [{"_name": "listAlert"}]
@@ -288,6 +308,24 @@ class TheHiveClient:
                     "_value": ms
                 }
             })
+        if query:
+            import json
+            try:
+                parsed = json.loads(query)
+                if isinstance(parsed, list):
+                    for op in parsed:
+                        if isinstance(op, dict):
+                            query_ops.append(op)
+                elif isinstance(parsed, dict):
+                    if "_name" in parsed:
+                        query_ops.append(parsed)
+                    else:
+                        query_ops.append({
+                            "_name": "filter",
+                            **parsed
+                        })
+            except json.JSONDecodeError:
+                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
         if sort:
             direction = "desc" if sort.startswith("-") else "asc"
             field = sort.lstrip("-+")
@@ -319,6 +357,7 @@ class TheHiveClient:
         sort: Optional[str] = None,
         created_after: Optional[Any] = None,
         created_before: Optional[Any] = None,
+        query: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         query_ops = [
@@ -349,6 +388,24 @@ class TheHiveClient:
                     "_value": ms
                 }
             })
+        if query:
+            import json
+            try:
+                parsed = json.loads(query)
+                if isinstance(parsed, list):
+                    for op in parsed:
+                        if isinstance(op, dict):
+                            query_ops.append(op)
+                elif isinstance(parsed, dict):
+                    if "_name" in parsed:
+                        query_ops.append(parsed)
+                    else:
+                        query_ops.append({
+                            "_name": "filter",
+                            **parsed
+                        })
+            except json.JSONDecodeError:
+                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
         if sort:
             direction = "desc" if sort.startswith("-") else "asc"
             field = sort.lstrip("-+")
@@ -381,6 +438,7 @@ class TheHiveClient:
         sort: Optional[str] = None,
         created_after: Optional[Any] = None,
         created_before: Optional[Any] = None,
+        query: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         query_ops = [
@@ -411,6 +469,24 @@ class TheHiveClient:
                     "_value": ms
                 }
             })
+        if query:
+            import json
+            try:
+                parsed = json.loads(query)
+                if isinstance(parsed, list):
+                    for op in parsed:
+                        if isinstance(op, dict):
+                            query_ops.append(op)
+                elif isinstance(parsed, dict):
+                    if "_name" in parsed:
+                        query_ops.append(parsed)
+                    else:
+                        query_ops.append({
+                            "_name": "filter",
+                            **parsed
+                        })
+            except json.JSONDecodeError:
+                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
         if sort:
             direction = "desc" if sort.startswith("-") else "asc"
             field = sort.lstrip("-+")
