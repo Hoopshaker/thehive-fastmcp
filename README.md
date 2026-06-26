@@ -19,17 +19,9 @@ Le serveur s'appuie exclusivement sur des variables d'environnement pour sa conf
 
 ## 🛠️ Utilisation avec Docker
 
-Ce serveur MCP a été conçu pour être empaqueté et exécuté très simplement dans un conteneur Docker.
+Ce serveur MCP est publié automatiquement sur **GitHub Container Registry (GHCR)**. Vous pouvez l'utiliser directement sans cloner le code source ou construire l'image vous-même : Docker s'occupe de tout télécharger de manière transparente au premier lancement.
 
-### 1. Construire l'image localement
-
-Depuis la racine du projet :
-
-```bash
-docker build -t thehive-fastmcp .
-```
-
-### 2. Exécuter le serveur MCP via Stdio
+### 1. Exécution directe en ligne de commande
 
 Comme le protocole MCP fonctionne via les flux d'entrée/sortie standard (`stdio`), vous devez exécuter le conteneur en mode interactif (`-i`) et sans allouer de pseudo-TTY (`-t` n'est pas utilisé pour éviter de polluer les flux avec des caractères d'échappement ANSI) :
 
@@ -38,12 +30,12 @@ docker run -i --rm \
   -e THEHIVE_URL="https://thehive.votre-domaine.com" \
   -e THEHIVE_API_KEY="VOTRE_CLE_API" \
   -e THEHIVE_VERIFY_SSL="false" \
-  thehive-fastmcp
+  ghcr.io/hoopshaker/thehive-fastmcp:latest
 ```
 
-### 3. Exemple de Configuration Claude Desktop
+### 2. Configuration pour les clients MCP (Gemini / Claude Desktop)
 
-Pour connecter ce serveur à votre application Claude Desktop, ajoutez ceci à votre fichier de configuration `claude_desktop_config.json` :
+Pour connecter ce serveur automatiquement à votre client MCP (comme l'extension Gemini MCP ou Claude Desktop), ajoutez cette configuration à votre fichier de configuration (`gemini-config.json` ou `claude_desktop_config.json`) :
 
 ```json
 {
@@ -57,12 +49,31 @@ Pour connecter ce serveur à votre application Claude Desktop, ajoutez ceci à v
         "-e", "THEHIVE_URL=https://thehive.votre-domaine.com",
         "-e", "THEHIVE_API_KEY=VOTRE_CLE_API",
         "-e", "THEHIVE_VERIFY_SSL=false",
-        "thehive-fastmcp"
+        "ghcr.io/hoopshaker/thehive-fastmcp:latest"
       ]
     }
   }
 }
 ```
+
+---
+
+### 🔨 Build local (Optionnel / Développement)
+
+Si vous souhaitez modifier le code ou construire l'image Docker vous-même localement :
+
+1. Depuis la racine du projet, construisez l'image :
+   ```bash
+   docker build -t thehive-fastmcp .
+   ```
+
+2. Exécutez-la en remplaçant la référence GHCR par votre tag local :
+   ```bash
+   docker run -i --rm \
+     -e THEHIVE_URL="https://thehive.votre-domaine.com" \
+     -e THEHIVE_API_KEY="VOTRE_CLE_API" \
+     thehive-fastmcp
+   ```
 
 ---
 
