@@ -1,0 +1,21 @@
+[project]
+name = "thehive-fastmcp"
+version = "0.1.0"
+description = "MCP server for self-hosted TheHive instance using FastMCP"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "requests>=2.31.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+thehive-fastmcp = "thehive_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thehive_mcp"]

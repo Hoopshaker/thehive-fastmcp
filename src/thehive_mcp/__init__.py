@@ -1,0 +1,1 @@
+# TheHive MCP Server package
