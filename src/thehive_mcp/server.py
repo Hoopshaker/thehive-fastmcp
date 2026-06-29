@@ -108,6 +108,30 @@ def search_cases(
         limit=limit
     )
 
+@mcp.tool()
+def update_case(
+    case_id: str,
+    status: Optional[str] = None,
+    summary: Optional[str] = None,
+    severity: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Partially update an existing Case (Incident) in TheHive.
+    
+    Args:
+        case_id (str): The unique ID of the case (starts with '~') or the case number.
+        status (str, optional): New status of the Case ("Open", "Resolved", "Closed").
+        summary (str, optional): Justification of closure or final remediation report (supports Markdown).
+        severity (int, optional): Modification of severity level (1 to 4).
+    """
+    client = get_client()
+    return client.update_case(
+        case_id=case_id,
+        status=status,
+        summary=summary,
+        severity=severity
+    )
+
 # --- Tools: Alerts ---
 
 @mcp.tool()
@@ -198,6 +222,48 @@ def search_alerts(
         query=query,
         limit=limit
     )
+
+@mcp.tool()
+def update_alert(
+    alert_id: str,
+    status: Optional[str] = None,
+    summary: Optional[str] = None,
+    assignee: Optional[str] = None,
+    stage: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Partially update an existing Alert in TheHive.
+    
+    Args:
+        alert_id (str): The unique ID of the alert.
+        status (str, optional): The new status of the alert ("New", "Imported", "Ignored").
+        summary (str, optional): Note describing the reason for change or analysis conclusion (supports Markdown).
+        assignee (str, optional): Email or ID of the analyst assigned to the alert.
+        stage (str, optional): Étape d'investigation (ex: "New", "Triage", "Closed").
+    """
+    client = get_client()
+    return client.update_alert(
+        alert_id=alert_id,
+        status=status,
+        summary=summary,
+        assignee=assignee,
+        stage=stage
+    )
+
+@mcp.tool()
+def add_alert_comment(
+    alert_id: str,
+    message: str
+) -> Dict[str, Any]:
+    """
+    Add a comment/note to an existing Alert in TheHive.
+    
+    Args:
+        alert_id (str): The unique ID of the target alert.
+        message (str): The markdown-supported comment content.
+    """
+    client = get_client()
+    return client.add_alert_comment(alert_id=alert_id, message=message)
 
 # --- Tools: Observables ---
 

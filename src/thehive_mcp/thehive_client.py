@@ -98,6 +98,24 @@ class TheHiveClient:
             logger.error(f"Error on GET {path}: {e}")
             raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
 
+    def _patch(self, path: str, json_data: Any = None) -> Dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        try:
+            response = requests.patch(url, headers=self.headers, json=json_data, verify=self.verify_ssl)
+            response.raise_for_status()
+            if response.status_code == 204:
+                return {}
+            try:
+                return response.json()
+            except ValueError:
+                return {}
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error on PATCH {path}: {e} - Response: {e.response.text if e.response else 'No response'}")
+            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response else str(e)}")
+        except Exception as e:
+            logger.error(f"Error on PATCH {path}: {e}")
+            raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
+
     def query(self, query_ops: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
         # Ensure pagination page size is specified if not present
         has_page = any(op.get("_name") == "page" for op in query_ops)
@@ -225,6 +243,23 @@ class TheHiveClient:
         
         return self.query(query_ops, limit=limit)
 
+    def update_case(
+        self,
+        case_id: str,
+        status: Optional[str] = None,
+        summary: Optional[str] = None,
+        severity: Optional[int] = None
+    ) -> Dict[str, Any]:
+        payload = {}
+        if status is not None:
+            payload["status"] = status
+        if summary is not None:
+            payload["summary"] = summary
+        if severity is not None:
+            payload["severity"] = severity
+            
+        return self._patch(f"/api/v1/case/{case_id}", json_data=payload)
+
     # --- Alert Methods ---
     def create_alert(self, type_: str, source: str, source_ref: str, title: str, description: str, severity: int = 2, tags: Optional[List[str]] = None, tlp: int = 2, pap: int = 2) -> Dict[str, Any]:
         payload = {
@@ -337,6 +372,32 @@ class TheHiveClient:
             })
         
         return self.query(query_ops, limit=limit)
+
+    def update_alert(
+        self,
+        alert_id: str,
+        status: Optional[str] = None,
+        summary: Optional[str] = None,
+        assignee: Optional[str] = None,
+        stage: Optional[str] = None
+    ) -> Dict[str, Any]:
+        payload = {}
+        if status is not None:
+            payload["status"] = status
+        if summary is not None:
+            payload["summary"] = summary
+        if assignee is not None:
+            payload["assignee"] = assignee
+        if stage is not None:
+            payload["stage"] = stage
+            
+        return self._patch(f"/api/v1/alert/{alert_id}", json_data=payload)
+
+    def add_alert_comment(self, alert_id: str, message: str) -> Dict[str, Any]:
+        payload = {
+            "message": message
+        }
+        return self._post(f"/api/v1/alert/{alert_id}/comment", json_data=payload)
 
     # --- Observable Methods ---
     def create_observable(self, case_id: str, data_type: str, data: str, message: Optional[str] = None, tags: Optional[List[str]] = None, tlp: int = 2, pap: int = 2, ioc: bool = False) -> Dict[str, Any]:

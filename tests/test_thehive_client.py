@@ -163,5 +163,84 @@ class TestTheHiveClient(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.search_alerts(query='{invalid json}')
 
+    def test_update_alert(self):
+        client = TheHiveClient(base_url="http://dummy", api_key="dummy_key")
+        actual_path = None
+        actual_payload = None
+        
+        def dummy_patch(path, json_data=None):
+            nonlocal actual_path, actual_payload
+            actual_path = path
+            actual_payload = json_data
+            return {"success": True}
+            
+        client._patch = dummy_patch
+        
+        client.update_alert(
+            alert_id="~165109968",
+            status="Ignored",
+            summary="Faux positif légitime",
+            assignee="analyst@example.com",
+            stage="Closed"
+        )
+        
+        self.assertEqual(actual_path, "/api/v1/alert/~165109968")
+        self.assertEqual(actual_payload, {
+            "status": "Ignored",
+            "summary": "Faux positif légitime",
+            "assignee": "analyst@example.com",
+            "stage": "Closed"
+        })
+
+    def test_add_alert_comment(self):
+        client = TheHiveClient(base_url="http://dummy", api_key="dummy_key")
+        actual_path = None
+        actual_payload = None
+        
+        def dummy_post(path, json_data=None):
+            nonlocal actual_path, actual_payload
+            actual_path = path
+            actual_payload = json_data
+            return {"success": True}
+            
+        client._post = dummy_post
+        
+        client.add_alert_comment(
+            alert_id="~165109968",
+            message="Comment content"
+        )
+        
+        self.assertEqual(actual_path, "/api/v1/alert/~165109968/comment")
+        self.assertEqual(actual_payload, {
+            "message": "Comment content"
+        })
+
+    def test_update_case(self):
+        client = TheHiveClient(base_url="http://dummy", api_key="dummy_key")
+        actual_path = None
+        actual_payload = None
+        
+        def dummy_patch(path, json_data=None):
+            nonlocal actual_path, actual_payload
+            actual_path = path
+            actual_payload = json_data
+            return {"success": True}
+            
+        client._patch = dummy_patch
+        
+        client.update_case(
+            case_id="~819336",
+            status="Resolved",
+            summary="Incident resolved",
+            severity=3
+        )
+        
+        self.assertEqual(actual_path, "/api/v1/case/~819336")
+        self.assertEqual(actual_payload, {
+            "status": "Resolved",
+            "summary": "Incident resolved",
+            "severity": 3
+        })
+
 if __name__ == "__main__":
     unittest.main()
