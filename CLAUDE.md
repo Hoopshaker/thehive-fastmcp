@@ -16,16 +16,17 @@ docker build -t thehive-fastmcp .                     # build de l'image locale
 
 ## Architecture
 
-Deux fichiers portent tout le code :
+Trois fichiers portent tout le code :
 
 - [src/thehive_mcp/thehive_client.py](src/thehive_mcp/thehive_client.py) — `TheHiveClient` : client HTTP `requests` vers `/api/v1/...`.
   - `_request` (et ses raccourcis `_get` / `_post` / `_patch`) : une réponse non 2xx lève `TheHiveHTTPError` (sous-classe de `RuntimeError`, avec `status_code`) dont le message est `<MÉTHODE> <chemin> -> HTTP <code> : <corps tronqué à 500 caractères>` ; une erreur réseau lève `RuntimeError`.
   - `create_case_from_alert` vérifie avant d'écrire (alerte non rattachée, modèle existant via `listCaseTemplate`), utilise `POST /api/v1/alert/{id}/case` et se replie sur la route v0 `POST /api/alert/{id}/createCase` si la route v1 renvoie 404/405. `merge_alerts_into_case` résout d'abord le case (numéro → `~id`) puis traite chaque alerte indépendamment.
   - `query(ops, limit)` : POST sur `/api/v1/query` avec la **Query DSL** de TheHive (liste d'opérations `_name`), ajoute la pagination `page` si absente.
   - `parse_date_to_ms` : accepte timestamp ms, ISO 8601 (`Z` ou offset) ou `YYYY-MM-DD` (UTC par défaut).
-- [src/thehive_mcp/server.py](src/thehive_mcp/server.py) — instance `FastMCP` et fonctions `@mcp.tool()` qui délèguent au client. Le client est instancié paresseusement (`get_client()`) pour que le serveur démarre même sans variables d'environnement.
+- [src/thehive_mcp/server.py](src/thehive_mcp/server.py) — instance `FastMCP` (avec `INSTRUCTIONS`) et outils déclarés avec **`@thehive_tool`** (jamais `@mcp.tool()` directement) : ce décorateur retire les marqueurs non fiables des chaînes reçues et marque la sortie. Le client est instancié paresseusement (`get_client()`) pour que le serveur démarre même sans variables d'environnement.
+- [src/thehive_mcp/untrusted.py](src/thehive_mcp/untrusted.py) — encadrement des champs de texte libre (`UNTRUSTED_FIELDS`) entre `[UNTRUSTED_DATA]` et `[/UNTRUSTED_DATA]`, neutralisation des marqueurs présents dans le contenu.
 
-Les fonctions de recherche (`search_cases`, `search_alerts`, `get_case_observables`, `get_case_tasks`) construisent chacune la même chaîne d'opérations : opération source (`listCase`, `listAlert`, `getCase` + `observables`/`tasks`) → filtres (`_like` titre, `_eq` severity/status/tags, `_gte`/`_lte` sur `_createdAt`) → `query` JSON libre → `sort`. Ce bloc est **dupliqué quatre fois** : toute modification de la logique de filtre, de `query` ou de `sort` doit être répercutée partout (ou factorisée).
+Les listings construisent une chaîne d'opérations : opération source (`listCase`, `listAlert`, `getCase` + `observables`/`tasks`/`comments`…) → filtres propres à l'outil → `_append_common_ops` (`_gte`/`_lte` sur `_createdAt`, `query` JSON libre, `sort`) → `page` ajouté par `query(ops, limit, offset)`. `search_entities` couvre les entités de `SEARCHABLE_ENTITIES` ; `count()` termine la chaîne par `{"_name": "count"}` sans `page`.
 
 Paramètre `query` libre : chaîne JSON qui peut être un filtre nu (`{"_eq": ...}`, enveloppé automatiquement dans `{"_name": "filter", ...}`), une opération nommée, ou une liste d'opérations. JSON invalide → `ValueError`.
 
@@ -48,6 +49,8 @@ Le serveur est utilisé par des agents de l'équipe Sécurité. Par conception, 
 - supprimer quoi que ce soit (aucun outil `delete_*`, vérifié par un test) ;
 - réassigner un case (`update_case` n'expose pas `assignee`).
 
+Le marquage des données non fiables fait aussi partie de ces garde-fous : un nouveau champ de texte libre renvoyé par TheHive doit être ajouté à `UNTRUSTED_FIELDS`.
+
 Ne pas lever ces garde-fous sans demande explicite. Les outils de promotion et de fusion (`create_case_from_alert`, `merge_alerts_into_case`, `add_case_comment`) et les refus de garde-fou renvoient `{"error": str(e)}` au lieu de lever une exception, pour que l'agent lise la cause.
 
 ## Conventions TheHive
@@ -60,7 +63,7 @@ Ne pas lever ces garde-fous sans demande explicite. Les outils de promotion et d
 
 ## Configuration
 
-Variables d'environnement lues par `TheHiveClient` : `THEHIVE_URL` et `THEHIVE_API_KEY` (obligatoires), `THEHIVE_VERIFY_SSL` (`false`/`0`/`no` pour désactiver), `THEHIVE_ORG` (ajoute l'en-tête `X-Organisation`), `THEHIVE_ALLOW_CLOSE` (voir Garde-fous).
+Variables d'environnement lues par `TheHiveClient` : `THEHIVE_URL` et `THEHIVE_API_KEY` (obligatoires), `THEHIVE_VERIFY_SSL` (`false`/`0`/`no` pour désactiver), `THEHIVE_ORG` (ajoute l'en-tête `X-Organisation`), `THEHIVE_ALLOW_CLOSE` (voir Garde-fous), `THEHIVE_MARK_UNTRUSTED` (`true` par défaut).
 
 - Ne jamais écrire de clé API, d'URL d'instance réelle ou de données d'alerte/case réelles dans le code, les tests ou la documentation : utiliser des valeurs factices (`http://dummy`, `dummy_key`). `.env` est ignoré par git.
 

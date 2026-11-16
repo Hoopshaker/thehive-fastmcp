@@ -14,6 +14,7 @@ Le serveur s'appuie exclusivement sur des variables d'environnement pour sa conf
 | `THEHIVE_API_KEY` | Clé API de l'utilisateur (Bearer Token). | **Oui** | - |
 | `THEHIVE_VERIFY_SSL` | Activer ou désactiver la vérification du certificat SSL. Utile en environnement auto-hébergé. | Non | `true` |
 | `THEHIVE_ORG` | Nom de l'organisation cible (ajoute le header `X-Organisation`). | Non | - |
+| `THEHIVE_MARK_UNTRUSTED` | Encadre les champs de texte libre renvoyés par TheHive (`description`, `summary`, `message`, `content`) entre `[UNTRUSTED_DATA]` et `[/UNTRUSTED_DATA]`, contre l'injection d'instructions. | Non | `true` |
 | `THEHIVE_ALLOW_CLOSE` | Autorise la clôture par l'agent : `status`/`summary` dans `update_case`, statut final ou `stage=Closed` dans `update_alert`. Désactivé par défaut : la clôture reste à un analyste. | Non | `false` |
 
 ---
@@ -99,6 +100,18 @@ Une fois connecté, le serveur MCP expose les outils suivants :
 *   `merge_alerts_into_case(alert_ids, case_id)` : Rattache des alertes à un dossier existant (« Merge into case »). Résultat par alerte (`merged` / `failed`) : un échec n'interrompt pas les suivantes.
 
 Les outils `create_case_from_alert`, `merge_alerts_into_case` et `add_case_comment`, ainsi que les refus de clôture, renvoient `{"error": "<MÉTHODE> <chemin> -> HTTP <code> : <corps tronqué>"}` au lieu de lever une exception. Aucun outil ne permet de supprimer un objet.
+
+### 🔎 Lecture et recherche
+*   `get_case_comments(case_id, sort, limit)` : Liste les commentaires d'un dossier.
+*   `get_task_logs(task_id, sort, limit)` : Liste les logs d'une tâche.
+*   `get_alert_observables(alert_id, sort, limit)` : Liste les observables d'une alerte.
+*   `list_case_templates(name, limit)` : Liste les modèles de case (pour trouver le nom exact attendu par `create_case_from_alert`).
+*   `get_similar_cases_for_alert(alert_id, limit)` : Dossiers partageant des observables avec une alerte (panneau « Similar cases »).
+*   `get_linked_cases(case_id, limit)` : Dossiers partageant des observables avec un dossier.
+*   `search_entities(entity, query, sort, created_after, created_before, limit, offset, count_only)` : Recherche en lecture seule sur `alert`, `case`, `task`, `observable` ou `case_template`, avec pagination (`offset`) et comptage (`count_only`).
+
+### 🛡️ Données non fiables
+Les alertes contiennent du texte écrit par des tiers (corps d'e-mails de phishing, charges SIEM) qui peut tenter de manipuler l'agent. Par défaut, les champs de texte libre des réponses sont encadrés par `[UNTRUSTED_DATA]` … `[/UNTRUSTED_DATA]`, et les instructions du serveur MCP demandent à l'agent de ne jamais suivre ce qui s'y trouve. Un marqueur présent dans le contenu est neutralisé pour qu'il ne puisse pas fermer le cadre. Si l'agent renvoie un texte encadré (par exemple une description recopiée), les marqueurs sont retirés avant l'envoi à TheHive.
 
 ### 🔍 Observables (IoCs)
 *   `create_observable(case_id, data_type, data, message, tags, tlp, pap, ioc)` : Ajoute un observable (ex: IP, domaine, hash) à un dossier.

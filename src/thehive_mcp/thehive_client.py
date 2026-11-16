@@ -1,3 +1,4 @@
+import json
 import os
 import requests
 import logging
@@ -113,11 +114,44 @@ class TheHiveClient:
     def _patch(self, path: str, json_data: Any = None) -> Any:
         return self._request("PATCH", path, json_data)
 
-    def query(self, query_ops: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _append_common_ops(
+        query_ops: List[Dict[str, Any]],
+        created_after: Optional[Any] = None,
+        created_before: Optional[Any] = None,
+        query: Optional[str] = None,
+        sort: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Append the filters shared by every listing: creation date range, free JSON query, sort."""
+        if created_after is not None:
+            query_ops.append({
+                "_name": "filter",
+                "_gte": {"_field": "_createdAt", "_value": parse_date_to_ms(created_after)}
+            })
+        if created_before is not None:
+            query_ops.append({
+                "_name": "filter",
+                "_lte": {"_field": "_createdAt", "_value": parse_date_to_ms(created_before)}
+            })
+        if query:
+            try:
+                parsed = json.loads(query)
+            except json.JSONDecodeError:
+                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
+            if isinstance(parsed, list):
+                query_ops.extend(op for op in parsed if isinstance(op, dict))
+            elif isinstance(parsed, dict):
+                query_ops.append(parsed if "_name" in parsed else {"_name": "filter", **parsed})
+        if sort:
+            direction = "desc" if sort.startswith("-") else "asc"
+            query_ops.append({"_name": "sort", "_fields": [{sort.lstrip("-+"): direction}]})
+        return query_ops
+
+    def query(self, query_ops: List[Dict[str, Any]], limit: int = 10, offset: int = 0) -> List[Dict[str, Any]]:
         # Ensure pagination page size is specified if not present
         has_page = any(op.get("_name") == "page" for op in query_ops)
         if not has_page:
-            query_ops.append({"_name": "page", "from": 0, "to": limit})
+            query_ops.append({"_name": "page", "from": offset, "to": offset + limit})
         
         payload = {"query": query_ops}
         result = self._post("/api/v1/query", json_data=payload)
@@ -199,52 +233,7 @@ class TheHiveClient:
                         "_value": tag
                     }
                 })
-        if created_after is not None:
-            ms = parse_date_to_ms(created_after)
-            query_ops.append({
-                "_name": "filter",
-                "_gte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if created_before is not None:
-            ms = parse_date_to_ms(created_before)
-            query_ops.append({
-                "_name": "filter",
-                "_lte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if query:
-            import json
-            try:
-                parsed = json.loads(query)
-                if isinstance(parsed, list):
-                    for op in parsed:
-                        if isinstance(op, dict):
-                            query_ops.append(op)
-                elif isinstance(parsed, dict):
-                    if "_name" in parsed:
-                        query_ops.append(parsed)
-                    else:
-                        query_ops.append({
-                            "_name": "filter",
-                            **parsed
-                        })
-            except json.JSONDecodeError:
-                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
-        if sort:
-            direction = "desc" if sort.startswith("-") else "asc"
-            field = sort.lstrip("-+")
-            query_ops.append({
-                "_name": "sort",
-                "_fields": [
-                    {field: direction}
-                ]
-            })
-        
+        self._append_common_ops(query_ops, created_after, created_before, query, sort)
         return self.query(query_ops, limit=limit)
 
     def update_case(
@@ -427,52 +416,7 @@ class TheHiveClient:
                         "_value": tag
                     }
                 })
-        if created_after is not None:
-            ms = parse_date_to_ms(created_after)
-            query_ops.append({
-                "_name": "filter",
-                "_gte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if created_before is not None:
-            ms = parse_date_to_ms(created_before)
-            query_ops.append({
-                "_name": "filter",
-                "_lte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if query:
-            import json
-            try:
-                parsed = json.loads(query)
-                if isinstance(parsed, list):
-                    for op in parsed:
-                        if isinstance(op, dict):
-                            query_ops.append(op)
-                elif isinstance(parsed, dict):
-                    if "_name" in parsed:
-                        query_ops.append(parsed)
-                    else:
-                        query_ops.append({
-                            "_name": "filter",
-                            **parsed
-                        })
-            except json.JSONDecodeError:
-                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
-        if sort:
-            direction = "desc" if sort.startswith("-") else "asc"
-            field = sort.lstrip("-+")
-            query_ops.append({
-                "_name": "sort",
-                "_fields": [
-                    {field: direction}
-                ]
-            })
-        
+        self._append_common_ops(query_ops, created_after, created_before, query, sort)
         return self.query(query_ops, limit=limit)
 
     def update_alert(
@@ -533,52 +477,7 @@ class TheHiveClient:
             }
         ]
         
-        if created_after is not None:
-            ms = parse_date_to_ms(created_after)
-            query_ops.append({
-                "_name": "filter",
-                "_gte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if created_before is not None:
-            ms = parse_date_to_ms(created_before)
-            query_ops.append({
-                "_name": "filter",
-                "_lte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if query:
-            import json
-            try:
-                parsed = json.loads(query)
-                if isinstance(parsed, list):
-                    for op in parsed:
-                        if isinstance(op, dict):
-                            query_ops.append(op)
-                elif isinstance(parsed, dict):
-                    if "_name" in parsed:
-                        query_ops.append(parsed)
-                    else:
-                        query_ops.append({
-                            "_name": "filter",
-                            **parsed
-                        })
-            except json.JSONDecodeError:
-                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
-        if sort:
-            direction = "desc" if sort.startswith("-") else "asc"
-            field = sort.lstrip("-+")
-            query_ops.append({
-                "_name": "sort",
-                "_fields": [
-                    {field: direction}
-                ]
-            })
-            
+        self._append_common_ops(query_ops, created_after, created_before, query, sort)
         return self.query(query_ops, limit=limit)
 
     # --- Task & Log Methods ---
@@ -614,52 +513,7 @@ class TheHiveClient:
             }
         ]
         
-        if created_after is not None:
-            ms = parse_date_to_ms(created_after)
-            query_ops.append({
-                "_name": "filter",
-                "_gte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if created_before is not None:
-            ms = parse_date_to_ms(created_before)
-            query_ops.append({
-                "_name": "filter",
-                "_lte": {
-                    "_field": "_createdAt",
-                    "_value": ms
-                }
-            })
-        if query:
-            import json
-            try:
-                parsed = json.loads(query)
-                if isinstance(parsed, list):
-                    for op in parsed:
-                        if isinstance(op, dict):
-                            query_ops.append(op)
-                elif isinstance(parsed, dict):
-                    if "_name" in parsed:
-                        query_ops.append(parsed)
-                    else:
-                        query_ops.append({
-                            "_name": "filter",
-                            **parsed
-                        })
-            except json.JSONDecodeError:
-                raise ValueError("The 'query' parameter must be a valid JSON string representing TheHive query operations or filters.")
-        if sort:
-            direction = "desc" if sort.startswith("-") else "asc"
-            field = sort.lstrip("-+")
-            query_ops.append({
-                "_name": "sort",
-                "_fields": [
-                    {field: direction}
-                ]
-            })
-            
+        self._append_common_ops(query_ops, created_after, created_before, query, sort)
         return self.query(query_ops, limit=limit)
 
     def add_task_log(self, task_id: str, message: str) -> Dict[str, Any]:
@@ -668,3 +522,73 @@ class TheHiveClient:
         }
         return self._post(f"/api/v1/task/{task_id}/log", json_data=payload)
 
+    # --- Read-only helpers (comments, logs, templates, similarity, generic search) ---
+    def _list_children(
+        self,
+        parent_op: Dict[str, Any],
+        child: str,
+        sort: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        query_ops = [parent_op, {"_name": child}]
+        self._append_common_ops(query_ops, sort=sort)
+        return self.query(query_ops, limit=limit)
+
+    def get_case_comments(self, case_id: str, sort: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        return self._list_children({"_name": "getCase", "idOrName": case_id}, "comments", sort, limit)
+
+    def get_task_logs(self, task_id: str, sort: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        return self._list_children({"_name": "getTask", "idOrName": task_id}, "logs", sort, limit)
+
+    def get_alert_observables(self, alert_id: str, sort: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        return self._list_children({"_name": "getAlert", "idOrName": alert_id}, "observables", sort, limit)
+
+    def list_case_templates(self, name: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        query_ops: List[Dict[str, Any]] = [{"_name": "listCaseTemplate"}]
+        if name:
+            query_ops.append({"_name": "filter", "_like": {"_field": "name", "_value": name}})
+        return self.query(query_ops, limit=limit)
+
+    def get_similar_cases_for_alert(self, alert_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Cases sharing observables with the alert (the "Similar cases" panel of the alert)."""
+        return self._list_children({"_name": "getAlert", "idOrName": alert_id}, "similarCases", limit=limit)
+
+    def get_linked_cases(self, case_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Cases sharing observables with the case (the "Related cases" panel of the case)."""
+        return self._list_children({"_name": "getCase", "idOrName": case_id}, "linkedCases", limit=limit)
+
+    def search_entities(
+        self,
+        entity: str,
+        query: Optional[str] = None,
+        sort: Optional[str] = None,
+        created_after: Optional[Any] = None,
+        created_before: Optional[Any] = None,
+        limit: int = 10,
+        offset: int = 0,
+        count_only: bool = False,
+    ) -> Any:
+        """Read-only search over any entity listed in SEARCHABLE_ENTITIES."""
+        if entity not in SEARCHABLE_ENTITIES:
+            raise ValueError(f"Unknown entity '{entity}'. Expected one of: {', '.join(SEARCHABLE_ENTITIES)}.")
+        query_ops = [{"_name": SEARCHABLE_ENTITIES[entity]}]
+        self._append_common_ops(query_ops, created_after, created_before, query, None if count_only else sort)
+        if count_only:
+            return {"entity": entity, "count": self.count(query_ops)}
+        return self.query(query_ops, limit=limit, offset=offset)
+
+    def count(self, query_ops: List[Dict[str, Any]]) -> int:
+        result = self._post("/api/v1/query", json_data={"query": query_ops + [{"_name": "count"}]})
+        if isinstance(result, int):
+            return result
+        raise RuntimeError(f"Unexpected count result from TheHive: {result!r}")
+
+
+# Entity name exposed to the agent -> TheHive v1 query source operation.
+SEARCHABLE_ENTITIES = {
+    "alert": "listAlert",
+    "case": "listCase",
+    "task": "listTask",
+    "observable": "listObservable",
+    "case_template": "listCaseTemplate",
+}
