@@ -1,8 +1,10 @@
+import os
 import unittest
 from unittest.mock import patch
 import requests
 from datetime import datetime, timezone
-from src.thehive_mcp.thehive_client import parse_date_to_ms, TheHiveClient
+from src.thehive_mcp.thehive_client import parse_date_to_ms, TheHiveClient, TheHiveHTTPError
+from src.thehive_mcp import server
 
 class TestTheHiveClient(unittest.TestCase):
     def test_parse_date_to_ms_integer(self):
@@ -253,11 +255,210 @@ class TestTheHiveClient(unittest.TestCase):
         response._content = b'{"type": "NotFoundError", "message": "Case ~42 not found"}'
         self.assertFalse(response)  # precondition of the original bug
 
-        for method, verb in ((client._get, "get"), (client._post, "post"), (client._patch, "patch")):
-            with patch(f"src.thehive_mcp.thehive_client.requests.{verb}", return_value=response):
-                with self.assertRaises(RuntimeError) as ctx:
+        for method, verb in ((client._get, "GET"), (client._post, "POST"), (client._patch, "PATCH")):
+            with patch("src.thehive_mcp.thehive_client.requests.request", return_value=response):
+                with self.assertRaises(TheHiveHTTPError) as ctx:
                     method("/api/v1/case/~42")
                 self.assertIn("Case ~42 not found", str(ctx.exception))
+                self.assertTrue(str(ctx.exception).startswith(f"{verb} /api/v1/case/~42 -> HTTP 404 : "))
+                self.assertEqual(ctx.exception.status_code, 404)
+
+
+class FakeClient(TheHiveClient):
+    """TheHiveClient whose HTTP layer is replaced by a route table.
+
+    routes maps (METHOD, path) to a return value, or to an exception instance to raise.
+    Every request is recorded in self.calls as (METHOD, path, payload).
+    """
+
+    def __init__(self, routes=None, templates=None):
+        super().__init__(base_url="http://dummy", api_key="dummy_key")
+        self.routes = routes or {}
+        self.templates = templates or []
+        self.calls = []
+
+    def _request(self, method, path, json_data=None):
+        self.calls.append((method, path, json_data))
+        if (method, path) not in self.routes:
+            raise TheHiveHTTPError(method, path, 404, "no route in test")
+        result = self.routes[(method, path)]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def query(self, query_ops, limit=10):
+        if query_ops[0] == {"_name": "listCaseTemplate"}:
+            name = query_ops[1]["_eq"]["_value"]
+            return [t for t in self.templates if t["name"] == name]
+        return []
+
+
+TEMPLATE = "[IR-25] - Création/Suppression d'identité"
+NEW_CASE = {"_id": "~900", "number": 1834, "title": "Nouvel utilisateur", "status": "New",
+            "stage": "New", "severity": 2, "tags": ["keycloak", "ir-25"]}
+
+
+class TestCreateCaseFromAlert(unittest.TestCase):
+    def test_promotes_with_template_title_and_merged_tags(self):
+        client = FakeClient(
+            routes={
+                ("GET", "/api/v1/alert/~1"): {"_id": "~1"},
+                ("POST", "/api/v1/alert/~1/case"): dict(NEW_CASE),
+                ("PATCH", "/api/v1/case/~900"): {},
+            },
+            templates=[{"name": TEMPLATE}],
+        )
+        result = client.create_case_from_alert("~1", case_template=TEMPLATE, title="[IR-25] - test",
+                                               tags=["ir-25", "test-mcp"])
+
+        self.assertIn(("POST", "/api/v1/alert/~1/case", {"caseTemplate": TEMPLATE}), client.calls)
+        # Tags are merged with the inherited ones, never replaced; duplicates are not re-added.
+        self.assertIn(("PATCH", "/api/v1/case/~900",
+                       {"title": "[IR-25] - test", "tags": ["keycloak", "ir-25", "test-mcp"]}), client.calls)
+        self.assertEqual(result["case_id"], "~900")
+        self.assertEqual(result["number"], 1834)
+        self.assertEqual(result["title"], "[IR-25] - test")
+        self.assertEqual(result["tags"], ["keycloak", "ir-25", "test-mcp"])
+        self.assertEqual(result["url"], "http://dummy/cases/~900/details")
+
+    def test_no_patch_when_nothing_to_change(self):
+        client = FakeClient(routes={
+            ("GET", "/api/v1/alert/~1"): {"_id": "~1"},
+            ("POST", "/api/v1/alert/~1/case"): dict(NEW_CASE),
+        })
+        client.create_case_from_alert("~1", tags=["keycloak"])
+        self.assertFalse(any(c[0] == "PATCH" for c in client.calls))
+
+    def test_alert_already_linked_creates_nothing(self):
+        client = FakeClient(routes={("GET", "/api/v1/alert/~1"): {"_id": "~1", "caseId": "~777"}})
+        with self.assertRaises(ValueError) as ctx:
+            client.create_case_from_alert("~1", case_template=TEMPLATE)
+        self.assertIn("~777", str(ctx.exception))
+        self.assertEqual([c[0] for c in client.calls], ["GET"])
+
+    def test_unknown_template_creates_nothing(self):
+        client = FakeClient(routes={("GET", "/api/v1/alert/~1"): {"_id": "~1"}}, templates=[{"name": TEMPLATE}])
+        with self.assertRaises(ValueError) as ctx:
+            client.create_case_from_alert("~1", case_template="[IR-99] - inconnu")
+        self.assertIn("Unknown case template", str(ctx.exception))
+        self.assertFalse(any(c[0] == "POST" for c in client.calls))
+
+    def test_falls_back_to_v0_route(self):
+        client = FakeClient(routes={
+            ("GET", "/api/v1/alert/~1"): {"_id": "~1"},
+            ("POST", "/api/v1/alert/~1/case"): TheHiveHTTPError("POST", "/api/v1/alert/~1/case", 405, ""),
+            ("POST", "/api/alert/~1/createCase"): {"id": "~900", "caseId": 1834, "tags": []},
+        })
+        result = client.create_case_from_alert("~1")
+        self.assertEqual(result["case_id"], "~900")
+        self.assertEqual(result["number"], 1834)
+
+    def test_other_http_errors_are_not_retried(self):
+        client = FakeClient(routes={
+            ("GET", "/api/v1/alert/~1"): {"_id": "~1"},
+            ("POST", "/api/v1/alert/~1/case"): TheHiveHTTPError("POST", "/api/v1/alert/~1/case", 400, "bad"),
+        })
+        with self.assertRaises(TheHiveHTTPError):
+            client.create_case_from_alert("~1")
+        self.assertNotIn("/api/alert/~1/createCase", [c[1] for c in client.calls])
+
+    def test_patch_failure_still_reports_created_case(self):
+        client = FakeClient(routes={
+            ("GET", "/api/v1/alert/~1"): {"_id": "~1"},
+            ("POST", "/api/v1/alert/~1/case"): dict(NEW_CASE),
+            ("PATCH", "/api/v1/case/~900"): TheHiveHTTPError("PATCH", "/api/v1/case/~900", 403, "forbidden"),
+        })
+        result = client.create_case_from_alert("~1", title="x")
+        self.assertEqual(result["case_id"], "~900")
+        self.assertIn("forbidden", result["warning"])
+
+
+class TestMergeAndComment(unittest.TestCase):
+    def test_merge_reports_per_alert_and_continues_after_failure(self):
+        client = FakeClient(routes={
+            ("GET", "/api/v1/case/1834"): {"_id": "~900"},
+            ("GET", "/api/v1/alert/~111"): {"_id": "~111"},
+            ("POST", "/api/v1/alert/~111/merge/~900"): {},
+            ("GET", "/api/v1/alert/~222"): {"_id": "~222", "caseId": "~555"},
+            ("GET", "/api/v1/alert/~333"): {"_id": "~333"},
+            ("POST", "/api/v1/alert/~333/merge/~900"): TheHiveHTTPError(
+                "POST", "/api/v1/alert/~333/merge/~900", 400, "boom"),
+            ("GET", "/api/v1/alert/~444"): {"_id": "~444", "caseId": "~900"},
+            ("GET", "/api/v1/alert/~666"): {"_id": "~666"},
+            ("POST", "/api/v1/alert/~666/merge/~900"): {},
+        })
+        result = client.merge_alerts_into_case(["~111", "~222", "~333", "~444", "~666"], "1834")
+
+        # The case number is resolved to its ID before comparing caseId values.
+        self.assertEqual(result["case_id"], "~900")
+        self.assertEqual(result["merged"], ["~111", "~444", "~666"])
+        self.assertEqual([f["alert_id"] for f in result["failed"]], ["~222", "~333"])
+        self.assertIn("~555", result["failed"][0]["error"])
+        self.assertIn("HTTP 400 : boom", result["failed"][1]["error"])
+        # An alert already in the target case is not merged a second time.
+        self.assertNotIn(("POST", "/api/v1/alert/~444/merge/~900", None), client.calls)
+
+    def test_merge_requires_alerts(self):
+        with self.assertRaises(ValueError):
+            FakeClient().merge_alerts_into_case([], "~900")
+
+    def test_add_case_comment(self):
+        client = FakeClient(routes={("POST", "/api/v1/case/~900/comment"): {"_id": "~c1"}})
+        message = "| a | b |\n|---|---|\n| 1 | 2 |"
+        result = client.add_case_comment("~900", message)
+        self.assertEqual(client.calls, [("POST", "/api/v1/case/~900/comment", {"message": message})])
+        self.assertEqual(result, {"case_id": "~900", "comment_id": "~c1", "status": "ok"})
+
+    def test_search_cases_open_only(self):
+        client = TheHiveClient(base_url="http://dummy", api_key="dummy_key")
+        captured = []
+        client.query = lambda ops, limit=10: captured.extend(ops) or []
+        client.search_cases(tags=["ir-25"], open_only=True)
+        self.assertIn({"_name": "filter", "_not": {"_eq": {"_field": "stage", "_value": "Closed"}}}, captured)
+        self.assertIn({"_name": "filter", "_eq": {"_field": "tags", "_value": "ir-25"}}, captured)
+
+
+class TestServerGuards(unittest.TestCase):
+    def setUp(self):
+        self.client = FakeClient(routes={("PATCH", "/api/v1/case/~900"): {}, ("PATCH", "/api/v1/alert/~1"): {}})
+        server._client = self.client
+        self.addCleanup(setattr, server, "_client", None)
+
+    def test_update_case_refuses_status_and_summary_by_default(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("THEHIVE_ALLOW_CLOSE", None)
+            for kwargs in ({"status": "TruePositive"}, {"summary": "done"}):
+                self.assertIn("error", server.update_case("~900", **kwargs))
+        self.assertEqual(self.client.calls, [])
+
+    def test_update_case_allows_editorial_fields(self):
+        server.update_case("~900", title="t", description="d", tags=["a"], severity=3)
+        self.assertEqual(self.client.calls, [("PATCH", "/api/v1/case/~900",
+                                              {"title": "t", "description": "d", "tags": ["a"], "severity": 3})])
+
+    def test_update_case_status_allowed_with_flag(self):
+        with patch.dict(os.environ, {"THEHIVE_ALLOW_CLOSE": "true"}):
+            server.update_case("~900", status="TruePositive")
+        self.assertEqual(len(self.client.calls), 1)
+
+    def test_update_alert_refuses_closing(self):
+        os.environ.pop("THEHIVE_ALLOW_CLOSE", None)
+        for kwargs in ({"stage": "Closed"}, {"status": "FalsePositive"}, {"status": "Ignored"}):
+            self.assertIn("error", server.update_alert("~1", **kwargs))
+        self.assertEqual(self.client.calls, [])
+        server.update_alert("~1", status="InProgress", assignee="analyst@example.com")
+        self.assertEqual(len(self.client.calls), 1)
+
+    def test_new_tools_return_error_dict_instead_of_raising(self):
+        result = server.create_case_from_alert("~missing")
+        self.assertTrue(result["error"].startswith("GET /api/v1/alert/~missing -> HTTP 404"))
+        self.assertIn("error", server.merge_alerts_into_case(["~1"], "~missing"))
+        self.assertIn("error", server.add_case_comment("~missing", "x"))
+
+    def test_no_delete_or_close_tool_is_exposed(self):
+        names = [name for name in dir(server) if not name.startswith("_")]
+        self.assertFalse([n for n in names if n.startswith(("delete_", "close_", "remove_"))])
+
 
 if __name__ == "__main__":
     unittest.main()

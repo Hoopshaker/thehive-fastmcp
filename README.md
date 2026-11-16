@@ -14,6 +14,7 @@ Le serveur s'appuie exclusivement sur des variables d'environnement pour sa conf
 | `THEHIVE_API_KEY` | Clé API de l'utilisateur (Bearer Token). | **Oui** | - |
 | `THEHIVE_VERIFY_SSL` | Activer ou désactiver la vérification du certificat SSL. Utile en environnement auto-hébergé. | Non | `true` |
 | `THEHIVE_ORG` | Nom de l'organisation cible (ajoute le header `X-Organisation`). | Non | - |
+| `THEHIVE_ALLOW_CLOSE` | Autorise la clôture par l'agent : `status`/`summary` dans `update_case`, statut final ou `stage=Closed` dans `update_alert`. Désactivé par défaut : la clôture reste à un analyste. | Non | `false` |
 
 ---
 
@@ -83,13 +84,21 @@ Une fois connecté, le serveur MCP expose les outils suivants :
 
 ### 📁 Cases (Dossiers d'incident)
 *   `get_case(id_or_name)` : Récupère les détails complets d'un dossier par ID (ex: `~1234`) ou numéro.
-*   `create_case(title, description, severity, tags, tlp, pap, flag)` : Crée un nouveau dossier d'incident.
-*   `search_cases(title, severity, tags, status, limit)` : Recherche des dossiers selon plusieurs critères.
+*   `create_case(title, description, severity, tags, tlp, pap, flag)` : Crée un nouveau dossier d'incident vide.
+*   `create_case_from_alert(alert_id, case_template, title, tags)` : Promeut une alerte en dossier (« Create case from alert »), avec un modèle de case optionnel dont les tâches sont créées. Les `tags` sont ajoutés à ceux hérités. Refuse une alerte déjà rattachée ou un modèle inconnu, sans rien créer.
+*   `search_cases(title, severity, tags, status, sort, created_after, created_before, query, open_only, limit)` : Recherche des dossiers. `open_only=true` exclut les dossiers au stage `Closed`.
+*   `update_case(case_id, title, description, tags, severity, status, summary)` : Mise à jour partielle. `status` et `summary` sont refusés sauf si `THEHIVE_ALLOW_CLOSE=true`.
+*   `add_case_comment(case_id, message)` : Ajoute un commentaire Markdown dans l'onglet Commentaires du dossier.
 
 ### 🚨 Alerts (Alertes de sécurité)
-*   `get_alert(alert_id)` : Récupère les détails complets d'une alerte.
+*   `get_alert(alert_id)` : Récupère les détails complets d'une alerte (dont `caseId` et `importedDate` si l'alerte est rattachée).
 *   `create_alert(type_name, source, source_ref, title, description, severity, tags, tlp, pap)` : Crée une alerte provenant d'un SIEM/EDR.
-*   `search_alerts(title, severity, tags, status, limit)` : Recherche des alertes.
+*   `search_alerts(title, severity, tags, status, sort, created_after, created_before, query, limit)` : Recherche des alertes (`title` en correspondance partielle).
+*   `update_alert(alert_id, status, summary, assignee, stage)` : Mise à jour partielle. Les statuts finaux et `stage=Closed` sont refusés sauf si `THEHIVE_ALLOW_CLOSE=true`.
+*   `add_alert_comment(alert_id, message)` : Ajoute un commentaire à une alerte.
+*   `merge_alerts_into_case(alert_ids, case_id)` : Rattache des alertes à un dossier existant (« Merge into case »). Résultat par alerte (`merged` / `failed`) : un échec n'interrompt pas les suivantes.
+
+Les outils `create_case_from_alert`, `merge_alerts_into_case` et `add_case_comment`, ainsi que les refus de clôture, renvoient `{"error": "<MÉTHODE> <chemin> -> HTTP <code> : <corps tronqué>"}` au lieu de lever une exception. Aucun outil ne permet de supprimer un objet.
 
 ### 🔍 Observables (IoCs)
 *   `create_observable(case_id, data_type, data, message, tags, tlp, pap, ioc)` : Ajoute un observable (ex: IP, domaine, hash) à un dossier.

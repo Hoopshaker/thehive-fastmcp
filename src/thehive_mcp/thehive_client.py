@@ -38,6 +38,21 @@ def parse_date_to_ms(date_val: Any) -> int:
                 )
     raise ValueError(f"Unsupported date type: {type(date_val)}")
 
+ERROR_BODY_MAX = 500
+
+
+class TheHiveHTTPError(RuntimeError):
+    """Non-2xx answer from TheHive. The message is readable by the agent:
+    '<METHOD> <path> -> HTTP <code> : <truncated body>'."""
+
+    def __init__(self, method: str, path: str, status_code: int, body: str):
+        self.method = method
+        self.path = path
+        self.status_code = status_code
+        self.body = body
+        super().__init__(f"{method} {path} -> HTTP {status_code} : {body}")
+
+
 class TheHiveClient:
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, verify_ssl: Optional[bool] = None):
         # 1. Base URL normalization
@@ -69,52 +84,34 @@ class TheHiveClient:
         if org:
             self.headers["X-Organisation"] = org
 
-    def _post(self, path: str, json_data: Any = None) -> Dict[str, Any]:
+    def _request(self, method: str, path: str, json_data: Any = None) -> Any:
         url = f"{self.base_url}{path}"
         try:
-            response = requests.post(url, headers=self.headers, json=json_data, verify=self.verify_ssl)
-            response.raise_for_status()
-            # Some endpoints return 204 No Content
-            if response.status_code == 204:
-                return {}
+            response = requests.request(method, url, headers=self.headers, json=json_data, verify=self.verify_ssl)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error on {method} {path}: {e}")
+            raise RuntimeError(f"{method} {path} -> request failed : {e}")
+        if not response.ok:
+            # Note: a non-2xx Response is falsy, never test it with `if response`.
+            body = (response.text or "")[:ERROR_BODY_MAX]
+            logger.error(f"HTTP error on {method} {path}: {response.status_code} - {body}")
+            raise TheHiveHTTPError(method, path, response.status_code, body)
+        # Some endpoints return 204 No Content or an empty body
+        if response.status_code == 204 or not response.content:
+            return {}
+        try:
             return response.json()
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error on POST {path}: {e} - Response: {e.response.text if e.response is not None else 'No response'}")
-            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response is not None else str(e)}")
-        except Exception as e:
-            logger.error(f"Error on POST {path}: {e}")
-            raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
+        except ValueError:
+            return {}
 
-    def _get(self, path: str) -> Dict[str, Any]:
-        url = f"{self.base_url}{path}"
-        try:
-            response = requests.get(url, headers=self.headers, verify=self.verify_ssl)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error on GET {path}: {e} - Response: {e.response.text if e.response is not None else 'No response'}")
-            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response is not None else str(e)}")
-        except Exception as e:
-            logger.error(f"Error on GET {path}: {e}")
-            raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
+    def _get(self, path: str) -> Any:
+        return self._request("GET", path)
 
-    def _patch(self, path: str, json_data: Any = None) -> Dict[str, Any]:
-        url = f"{self.base_url}{path}"
-        try:
-            response = requests.patch(url, headers=self.headers, json=json_data, verify=self.verify_ssl)
-            response.raise_for_status()
-            if response.status_code == 204:
-                return {}
-            try:
-                return response.json()
-            except ValueError:
-                return {}
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error on PATCH {path}: {e} - Response: {e.response.text if e.response is not None else 'No response'}")
-            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response is not None else str(e)}")
-        except Exception as e:
-            logger.error(f"Error on PATCH {path}: {e}")
-            raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
+    def _post(self, path: str, json_data: Any = None) -> Any:
+        return self._request("POST", path, json_data)
+
+    def _patch(self, path: str, json_data: Any = None) -> Any:
+        return self._request("PATCH", path, json_data)
 
     def query(self, query_ops: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
         # Ensure pagination page size is specified if not present
@@ -158,9 +155,16 @@ class TheHiveClient:
         created_after: Optional[Any] = None,
         created_before: Optional[Any] = None,
         query: Optional[str] = None,
-        limit: int = 10
+        limit: int = 10,
+        open_only: bool = False
     ) -> List[Dict[str, Any]]:
         query_ops = [{"_name": "listCase"}]
+
+        if open_only:
+            query_ops.append({
+                "_name": "filter",
+                "_not": {"_eq": {"_field": "stage", "_value": "Closed"}}
+            })
         
         if title:
             query_ops.append({
@@ -248,9 +252,18 @@ class TheHiveClient:
         case_id: str,
         status: Optional[str] = None,
         summary: Optional[str] = None,
-        severity: Optional[int] = None
+        severity: Optional[int] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         payload = {}
+        if title is not None:
+            payload["title"] = title
+        if description is not None:
+            payload["description"] = description
+        if tags is not None:
+            payload["tags"] = tags
         if status is not None:
             payload["status"] = status
         if summary is not None:
@@ -259,6 +272,95 @@ class TheHiveClient:
             payload["severity"] = severity
             
         return self._patch(f"/api/v1/case/{case_id}", json_data=payload)
+
+    def case_summary(self, case: Dict[str, Any]) -> Dict[str, Any]:
+        case_id = case.get("_id") or case.get("id")
+        return {
+            "case_id": case_id,
+            "number": case.get("number") or case.get("caseId"),
+            "title": case.get("title"),
+            "status": case.get("status"),
+            "stage": case.get("stage"),
+            "severity": case.get("severity"),
+            "tags": case.get("tags", []),
+            "url": f"{self.base_url}/cases/{case_id}/details",
+        }
+
+    def find_case_template(self, name: str) -> Optional[Dict[str, Any]]:
+        results = self.query([
+            {"_name": "listCaseTemplate"},
+            {"_name": "filter", "_eq": {"_field": "name", "_value": name}},
+        ], limit=1)
+        return results[0] if results else None
+
+    def create_case_from_alert(
+        self,
+        alert_id: str,
+        case_template: Optional[str] = None,
+        title: Optional[str] = None,
+        tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Promote an alert into a case (UI "Create case from alert")."""
+        alert = self.get_alert(alert_id)
+        if alert.get("caseId"):
+            raise ValueError(
+                f"Alert {alert_id} is already linked to case {alert['caseId']}: no case created. "
+                "Use merge_alerts_into_case to attach other alerts to that case."
+            )
+        if case_template and not self.find_case_template(case_template):
+            raise ValueError(f"Unknown case template '{case_template}': no case created.")
+
+        payload = {"caseTemplate": case_template} if case_template else {}
+        try:
+            case = self._post(f"/api/v1/alert/{alert_id}/case", json_data=payload)
+        except TheHiveHTTPError as e:
+            if e.status_code not in (404, 405):
+                raise
+            # Route missing on this TheHive version: fall back to the v0 API.
+            case = self._post(f"/api/alert/{alert_id}/createCase", json_data=payload)
+
+        result = self.case_summary(case)
+        patch_payload: Dict[str, Any] = {}
+        if title:
+            patch_payload["title"] = title
+        if tags:
+            current = list(case.get("tags") or [])
+            merged = current + [t for t in tags if t not in current]
+            if merged != current:
+                patch_payload["tags"] = merged
+        if patch_payload:
+            try:
+                self._patch(f"/api/v1/case/{result['case_id']}", json_data=patch_payload)
+                result.update(patch_payload)
+            except RuntimeError as e:
+                result["warning"] = f"Case created but title/tags update failed: {e}"
+        return result
+
+    def merge_alerts_into_case(self, alert_ids: List[str], case_id: str) -> Dict[str, Any]:
+        """Attach alerts to an existing case (UI "Merge into case"), one by one."""
+        if not alert_ids:
+            raise ValueError("alert_ids must contain at least one alert ID.")
+        case = self.get_case(case_id)
+        target_id = case.get("_id") or case_id
+        merged: List[str] = []
+        failed: List[Dict[str, str]] = []
+        for alert_id in alert_ids:
+            try:
+                alert = self.get_alert(alert_id)
+                linked = alert.get("caseId")
+                if linked and linked != target_id:
+                    failed.append({"alert_id": alert_id, "error": f"Alert already linked to another case ({linked})."})
+                    continue
+                if not linked:
+                    self._post(f"/api/v1/alert/{alert_id}/merge/{target_id}")
+                merged.append(alert_id)
+            except (RuntimeError, ValueError) as e:
+                failed.append({"alert_id": alert_id, "error": str(e)})
+        return {"case_id": target_id, "merged": merged, "failed": failed}
+
+    def add_case_comment(self, case_id: str, message: str) -> Dict[str, Any]:
+        result = self._post(f"/api/v1/case/{case_id}/comment", json_data={"message": message})
+        return {"case_id": case_id, "comment_id": result.get("_id"), "status": "ok"}
 
     # --- Alert Methods ---
     def create_alert(self, type_: str, source: str, source_ref: str, title: str, description: str, severity: int = 2, tags: Optional[List[str]] = None, tlp: int = 2, pap: int = 2) -> Dict[str, Any]:
@@ -565,3 +667,4 @@ class TheHiveClient:
             "message": message
         }
         return self._post(f"/api/v1/task/{task_id}/log", json_data=payload)
+

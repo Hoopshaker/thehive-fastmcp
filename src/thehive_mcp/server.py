@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import List, Dict, Any, Optional
 from mcp.server.fastmcp import FastMCP
 from .thehive_client import TheHiveClient
@@ -9,6 +10,7 @@ logger = logging.getLogger("thehive_mcp")
 
 # Instantiate FastMCP server
 mcp = FastMCP("TheHive MCP Server")
+
 
 # Lazy client instantiation helper to avoid startup errors if env vars are missing
 _client = None
@@ -22,6 +24,15 @@ def get_client() -> TheHiveClient:
             logger.error(f"Initialization error: {e}")
             raise RuntimeError(f"Server initialization failed: {e}. Ensure THEHIVE_URL and THEHIVE_API_KEY are configured.")
     return _client
+
+# Closing cases/alerts is left to human analysts unless the deployment explicitly allows it.
+ALERT_FINAL_STATUSES = {
+    "ignored", "falsepositive", "truepositive", "duplicated", "indeterminate", "other",
+    "closed", "resolved",
+}
+
+def allow_close() -> bool:
+    return os.environ.get("THEHIVE_ALLOW_CLOSE", "false").lower() in ("true", "1", "yes")
 
 # --- Tools: Cases ---
 
@@ -79,16 +90,18 @@ def search_cases(
     created_after: Optional[str] = None,
     created_before: Optional[str] = None,
     query: Optional[str] = None,
-    limit: int = 10
+    limit: int = 10,
+    open_only: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Search for Cases in TheHive with advanced filtering capabilities.
-    
+
     Args:
         title (str, optional): Substring match on the Case title.
         severity (int, optional): Filter by exact severity level (1 to 4).
         tags (List[str], optional): Filter by tags (requires all tags to match).
-        status (str, optional): Filter by status (e.g. 'Open', 'Resolved').
+        status (str, optional): Filter by status (e.g. 'New', 'InProgress').
+        open_only (bool): Exclude closed cases (stage = 'Closed'). Default is False.
         sort (str, optional): Field to sort by. Use '-' prefix for descending (e.g., '-_createdAt' or '-_updatedAt').
         created_after (str, optional): Filter cases created after this date (ISO 8601 or timestamp in ms).
         created_before (str, optional): Filter cases created before this date (ISO 8601 or timestamp in ms).
@@ -105,32 +118,93 @@ def search_cases(
         created_after=created_after,
         created_before=created_before,
         query=query,
-        limit=limit
+        limit=limit,
+        open_only=open_only
     )
 
 @mcp.tool()
 def update_case(
     case_id: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    severity: Optional[int] = None,
     status: Optional[str] = None,
-    summary: Optional[str] = None,
-    severity: Optional[int] = None
+    summary: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Partially update an existing Case (Incident) in TheHive.
-    
+    Partially update an existing Case (Incident) in TheHive. Only the provided fields are changed.
+
     Args:
         case_id (str): The unique ID of the case (starts with '~') or the case number.
-        status (str, optional): New status of the Case ("Open", "Resolved", "Closed").
-        summary (str, optional): Justification of closure or final remediation report (supports Markdown).
+        title (str, optional): New title of the Case.
+        description (str, optional): New description (supports Markdown).
+        tags (List[str], optional): Full list of tags (REPLACES the current tags).
         severity (int, optional): Modification of severity level (1 to 4).
+        status (str, optional): New status of the Case. Refused unless the server runs with
+            THEHIVE_ALLOW_CLOSE=true: closing a case is left to a human analyst.
+        summary (str, optional): Closure justification (supports Markdown). Same restriction as status.
     """
+    if not allow_close() and (status is not None or summary is not None):
+        return {"error": "Changing a case status or closure summary is disabled on this server "
+                         "(THEHIVE_ALLOW_CLOSE=false). Closing a case is left to a human analyst: "
+                         "use add_case_comment to give your conclusion."}
     client = get_client()
     return client.update_case(
         case_id=case_id,
+        title=title,
+        description=description,
+        tags=tags,
         status=status,
         summary=summary,
         severity=severity
     )
+
+@mcp.tool()
+def create_case_from_alert(
+    alert_id: str,
+    case_template: Optional[str] = None,
+    title: Optional[str] = None,
+    tags: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    Promote an Alert into a new Case, like "Create case from alert" in TheHive UI.
+    The alert gets linked to the case (caseId) and its observables are copied into it.
+    Before calling, check with search_cases(tags=..., open_only=True) that no open case already
+    covers this alert family; if one exists, use merge_alerts_into_case instead.
+
+    Args:
+        alert_id (str): The unique ID of the alert (e.g. '~245776384').
+        case_template (str, optional): Exact name of a case template. Its tasks are created in the case.
+            An unknown template returns an error and no case is created.
+        title (str, optional): Title applied after creation (replaces the one inherited from the alert).
+        tags (List[str], optional): Tags ADDED to those inherited from the alert and the template.
+
+    Returns {case_id, number, title, status, stage, severity, tags, url}, or {"error": "..."}.
+    Fails without creating anything if the alert is already linked to a case.
+    """
+    try:
+        return get_client().create_case_from_alert(
+            alert_id=alert_id, case_template=case_template, title=title, tags=tags
+        )
+    except (RuntimeError, ValueError) as e:
+        return {"error": str(e)}
+
+@mcp.tool()
+def add_case_comment(case_id: str, message: str) -> Dict[str, Any]:
+    """
+    Add a comment to the Comments tab of a Case (use it to give an argued opinion or conclusion).
+
+    Args:
+        case_id (str): The unique ID of the case (starts with '~').
+        message (str): Comment content, Markdown supported (tables, bold, emoji).
+
+    Returns {case_id, comment_id, status: "ok"}, or {"error": "..."}.
+    """
+    try:
+        return get_client().add_case_comment(case_id=case_id, message=message)
+    except (RuntimeError, ValueError) as e:
+        return {"error": str(e)}
 
 # --- Tools: Alerts ---
 
@@ -233,14 +307,25 @@ def update_alert(
 ) -> Dict[str, Any]:
     """
     Partially update an existing Alert in TheHive.
-    
+    Do NOT set status "Imported" by hand: it does not link the alert to a case. Use
+    create_case_from_alert or merge_alerts_into_case instead.
+
     Args:
         alert_id (str): The unique ID of the alert.
-        status (str, optional): The new status of the alert ("New", "Imported", "Ignored").
+        status (str, optional): The new status of the alert (e.g. "New", "InProgress"). Final statuses
+            (Ignored, FalsePositive, TruePositive, Duplicated, Other...) are refused unless the server
+            runs with THEHIVE_ALLOW_CLOSE=true.
         summary (str, optional): Note describing the reason for change or analysis conclusion (supports Markdown).
         assignee (str, optional): Email or ID of the analyst assigned to the alert.
-        stage (str, optional): Étape d'investigation (ex: "New", "Triage", "Closed").
+        stage (str, optional): Investigation stage (e.g. "New", "InProgress"). "Closed" is refused unless
+            THEHIVE_ALLOW_CLOSE=true.
     """
+    if not allow_close() and (
+        (stage is not None and stage.lower() == "closed")
+        or (status is not None and status.lower() in ALERT_FINAL_STATUSES)
+    ):
+        return {"error": "Closing an alert is disabled on this server (THEHIVE_ALLOW_CLOSE=false). "
+                         "Closing is left to a human analyst."}
     client = get_client()
     return client.update_alert(
         alert_id=alert_id,
@@ -264,6 +349,25 @@ def add_alert_comment(
     """
     client = get_client()
     return client.add_alert_comment(alert_id=alert_id, message=message)
+
+@mcp.tool()
+def merge_alerts_into_case(alert_ids: List[str], case_id: str) -> Dict[str, Any]:
+    """
+    Attach one or more Alerts to an existing Case, like "Merge into case" in TheHive UI.
+    Each alert gets linked to the case (caseId) and its observables are copied into it.
+    One failure does not stop the other alerts.
+
+    Args:
+        alert_ids (List[str]): IDs of the alerts to attach (at least one).
+        case_id (str): The unique ID (starts with '~') or number of the target Case.
+
+    Returns {case_id, merged: [alert_id...], failed: [{alert_id, error}...]}, or {"error": "..."}
+    if the case cannot be read. An alert already linked to another case is reported in failed.
+    """
+    try:
+        return get_client().merge_alerts_into_case(alert_ids=alert_ids, case_id=case_id)
+    except (RuntimeError, ValueError) as e:
+        return {"error": str(e)}
 
 # --- Tools: Observables ---
 
