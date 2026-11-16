@@ -1,4 +1,6 @@
 import unittest
+from unittest.mock import patch
+import requests
 from datetime import datetime, timezone
 from src.thehive_mcp.thehive_client import parse_date_to_ms, TheHiveClient
 
@@ -241,6 +243,21 @@ class TestTheHiveClient(unittest.TestCase):
             "summary": "Incident resolved",
             "severity": 3
         })
+
+    def test_http_error_body_is_surfaced(self):
+        # A 4xx Response is falsy (Response.__bool__ returns .ok): the TheHive
+        # error body must still be propagated in the RuntimeError message.
+        client = TheHiveClient(base_url="http://dummy", api_key="dummy_key")
+        response = requests.Response()
+        response.status_code = 404
+        response._content = b'{"type": "NotFoundError", "message": "Case ~42 not found"}'
+        self.assertFalse(response)  # precondition of the original bug
+
+        for method, verb in ((client._get, "get"), (client._post, "post"), (client._patch, "patch")):
+            with patch(f"src.thehive_mcp.thehive_client.requests.{verb}", return_value=response):
+                with self.assertRaises(RuntimeError) as ctx:
+                    method("/api/v1/case/~42")
+                self.assertIn("Case ~42 not found", str(ctx.exception))
 
 if __name__ == "__main__":
     unittest.main()

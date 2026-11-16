@@ -79,8 +79,8 @@ class TheHiveClient:
                 return {}
             return response.json()
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error on POST {path}: {e} - Response: {e.response.text if e.response else 'No response'}")
-            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response else str(e)}")
+            logger.error(f"HTTP error on POST {path}: {e} - Response: {e.response.text if e.response is not None else 'No response'}")
+            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response is not None else str(e)}")
         except Exception as e:
             logger.error(f"Error on POST {path}: {e}")
             raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
@@ -92,8 +92,8 @@ class TheHiveClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error on GET {path}: {e} - Response: {e.response.text if e.response else 'No response'}")
-            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response else str(e)}")
+            logger.error(f"HTTP error on GET {path}: {e} - Response: {e.response.text if e.response is not None else 'No response'}")
+            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response is not None else str(e)}")
         except Exception as e:
             logger.error(f"Error on GET {path}: {e}")
             raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
@@ -110,8 +110,8 @@ class TheHiveClient:
             except ValueError:
                 return {}
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error on PATCH {path}: {e} - Response: {e.response.text if e.response else 'No response'}")
-            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response else str(e)}")
+            logger.error(f"HTTP error on PATCH {path}: {e} - Response: {e.response.text if e.response is not None else 'No response'}")
+            raise RuntimeError(f"TheHive API returned HTTP error: {e.response.text if e.response is not None else str(e)}")
         except Exception as e:
             logger.error(f"Error on PATCH {path}: {e}")
             raise RuntimeError(f"Failed to perform request to TheHive: {str(e)}")
